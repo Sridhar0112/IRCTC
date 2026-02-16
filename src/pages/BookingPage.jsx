@@ -26,7 +26,7 @@ export default function BookingPage() {
 
   if (!train) return <p className="rounded-xl bg-amber-100 p-4">Select a train first from search results.</p>;
 
-  const total = train.fare * (selectedSeats.length || 1);
+  const total = (train.dynamicFare || train.fare) * (selectedSeats.length || 1);
 
   const handleSuccess = () => {
     const pnr = `${Math.floor(Math.random() * 9000000000 + 1000000000)}`;
@@ -39,7 +39,10 @@ export default function BookingPage() {
     <div className="grid gap-6 lg:grid-cols-3">
       <div className="space-y-4 lg:col-span-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-2xl font-bold">{train.name} Booking</h2>
+          <div>
+            <h2 className="text-2xl font-bold">{train.name} Booking</h2>
+            <p className="text-xs text-slate-500">Live availability updates enabled • Surge x{train.surgeMultiplier}</p>
+          </div>
           <BookingTimer seconds={bookingSession.expiresIn} />
         </div>
 

@@ -6,14 +6,19 @@ export default {
     extend: {
       colors: {
         brand: {
-          50: '#ecfeff',
-          500: '#06b6d4',
-          600: '#0891b2',
-          700: '#0e7490',
+          50: '#dbeafe',
+          400: '#3b82f6',
+          500: '#1d4ed8',
+          600: '#1e40af',
+          700: '#172554',
+        },
+        saffron: {
+          400: '#fb923c',
+          500: '#f97316',
         },
       },
       boxShadow: {
-        glow: '0 8px 32px rgba(14,116,144,0.25)',
+        glow: '0 8px 32px rgba(30,64,175,0.25)',
       },
     },
   },
