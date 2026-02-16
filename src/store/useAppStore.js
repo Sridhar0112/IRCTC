@@ -1,18 +1,27 @@
 import { create } from 'zustand';
+import { createTrainDataset } from '../data/trainDataset';
 
 const now = new Date();
-const demoTrains = [
-  { id: '12951', name: 'Rajdhani Express', from: 'Mumbai', to: 'Delhi', departure: '06:00', duration: 880, ac: true, seatsLeft: 23, fare: 1850, occupancy: 82, surge: true, classMix: { sleeper: 22, ac3: 41, ac2: 28, ac1: 9 } },
-  { id: '12002', name: 'Shatabdi Express', from: 'New Delhi', to: 'Bhopal', departure: '07:25', duration: 490, ac: true, seatsLeft: 12, fare: 1420, occupancy: 90, surge: false, classMix: { cc: 44, ec: 56 } },
-  { id: '11077', name: 'Jhelum Express', from: 'Pune', to: 'Jammu', departure: '17:20', duration: 2100, ac: false, seatsLeft: 41, fare: 960, occupancy: 68, surge: false, classMix: { sleeper: 60, ac3: 27, ac2: 13 } },
-  { id: '22691', name: 'Bengaluru Rajdhani', from: 'Bengaluru', to: 'Hazrat Nizamuddin', departure: '20:00', duration: 1980, ac: true, seatsLeft: 8, fare: 2140, occupancy: 94, surge: true, classMix: { ac3: 46, ac2: 36, ac1: 18 } },
-];
+const allTrains = createTrainDataset(640);
 
-const seats = Array.from({ length: 48 }, (_, i) => ({
-  id: i + 1,
-  coach: `B${Math.floor(i / 8) + 1}`,
-  status: Math.random() > 0.22 ? 'available' : 'booked',
-}));
+const initialTrain = allTrains[0];
+const buildSeatMap = (train = initialTrain) => {
+  const coaches = Object.entries(train.classAvailability).flatMap(([cls, meta]) => {
+    const coachCount = Math.max(1, Math.round(meta.capacity / 24));
+    return Array.from({ length: coachCount }, (_, idx) => ({ cls, coach: `${cls}${idx + 1}` }));
+  });
+
+  return Array.from({ length: 72 }, (_, i) => {
+    const coachObj = coaches[i % coaches.length] || { cls: 'SL', coach: 'SL1' };
+    const chance = Math.random();
+    let status = 'available';
+    if (chance > 0.84) status = 'booked';
+    else if (chance > 0.74) status = 'held';
+    return { id: i + 1, coach: coachObj.coach, classType: coachObj.cls, status };
+  });
+};
+
+const demandCache = new Map();
 
 export const useAppStore = create((set, get) => ({
   config: { locale: 'en', currency: 'INR' },
@@ -25,7 +34,7 @@ export const useAppStore = create((set, get) => ({
     loyalty: 'Gold',
     loyaltyPoints: 1890,
     wallet: 4520,
-    frequentRoutes: ['Mumbai-Delhi', 'Delhi-Bhopal'],
+    frequentRoutes: ['Chennai-Madurai', 'Chennai-Bangalore'],
     savedPassengers: [
       { id: 'p1', name: 'Aarav Sharma', age: 31, gender: 'Male' },
       { id: 'p2', name: 'Mira Sharma', age: 29, gender: 'Female' },
@@ -35,22 +44,24 @@ export const useAppStore = create((set, get) => ({
       { id: 2, device: 'Safari on iPhone', at: new Date(now - 86400000).toISOString(), ip: '103.21.98.4' },
     ],
   },
-  trains: demoTrains,
-  searchQuery: { from: '', to: '', date: '' },
-  seatMap: seats,
+  trains: allTrains,
+  indexedTrains: allTrains.map((train) => ({ id: train.id, key: train.searchIndex })),
+  searchQuery: { from: 'Chennai', to: 'Madurai', date: '' },
+  seatMap: buildSeatMap(initialTrain),
   selectedTrain: null,
   selectedSeats: [],
-  bookingSession: { expiresIn: 600, active: false },
+  bookingSession: { expiresIn: 300, active: false, heldAt: null },
   bookings: [
-    { pnr: '8451023456', trainName: 'Rajdhani Express', status: 'Confirmed', amount: 1850, date: '2026-01-14', txnId: 'txn_990112', method: 'Razorpay' },
-    { pnr: '8451099230', trainName: 'Shatabdi Express', status: 'Cancelled', amount: 1420, date: '2025-12-20', txnId: 'txn_882153', method: 'Stripe' },
+    { pnr: '8451023456', trainName: 'Kaveri Superfast', status: 'Confirmed', amount: 1850, date: '2026-01-14', txnId: 'txn_990112', method: 'Razorpay' },
+    { pnr: '8451099230', trainName: 'Pothigai Express', status: 'Cancelled', amount: 1420, date: '2025-12-20', txnId: 'txn_882153', method: 'Stripe' },
   ],
-  bookingFeed: ['Seat update stream connected.'],
+  bookingFeed: ['Realtime seat engine online.'],
   notifications: [],
   notificationCenterOpen: false,
-  payment: { method: 'razorpay', promoCode: '', amount: 0, status: 'initiated', transactionId: '', timestamp: '' },
+  payment: { method: 'razorpay', promoCode: '', amount: 0, status: 'initiated', transactionId: '', timestamp: '', queuePosition: null },
   security: { warningOpen: false, countdown: 90, suspicious: false, pushPermissionPrompt: true, installBanner: true },
   ui: { mobileMenu: false, paymentModal: false, sessionModal: false },
+  cachedSearches: {},
   setRole: (role) => set({ role }),
   setTheme: (theme) => {
     localStorage.setItem('theme', theme);
@@ -64,12 +75,29 @@ export const useAppStore = create((set, get) => ({
   setLocale: (locale) => set((s) => ({ config: { ...s.config, locale } })),
   setCurrency: (currency) => set((s) => ({ config: { ...s.config, currency } })),
   setSearchQuery: (query) => set({ searchQuery: query }),
+  getSearchMatches: (needle = '') => {
+    const normalized = needle.trim().toLowerCase();
+    if (!normalized) return get().trains;
+    if (demandCache.has(normalized)) return demandCache.get(normalized);
+
+    const idSet = new Set(
+      get()
+        .indexedTrains
+        .filter((entry) => entry.key.includes(normalized))
+        .map((entry) => entry.id),
+    );
+
+    const hits = get().trains.filter((train) => idSet.has(train.id));
+    demandCache.set(normalized, hits);
+    return hits;
+  },
   selectTrain: (train) =>
     set({
       selectedTrain: train,
       selectedSeats: [],
-      bookingSession: { expiresIn: 600, active: true },
-      payment: { ...get().payment, amount: train?.fare || 0 },
+      seatMap: buildSeatMap(train),
+      bookingSession: { expiresIn: 300, active: true, heldAt: Date.now() },
+      payment: { ...get().payment, amount: train?.dynamicFare || train?.fare || 0, queuePosition: null },
     }),
   toggleSeat: (seatNo) =>
     set((state) => {
@@ -77,7 +105,10 @@ export const useAppStore = create((set, get) => ({
       if (!seat || seat.status === 'booked') return state;
       const exists = state.selectedSeats.includes(seatNo);
       const optimistic = exists ? state.selectedSeats.filter((seatId) => seatId !== seatNo) : [...state.selectedSeats, seatNo];
-      return { selectedSeats: optimistic };
+      return {
+        selectedSeats: optimistic,
+        seatMap: state.seatMap.map((s) => (s.id === seatNo ? { ...s, status: exists ? 'available' : 'held' } : s)),
+      };
     }),
   markSeatStatus: (seatNo, status) =>
     set((state) => ({
@@ -89,8 +120,9 @@ export const useAppStore = create((set, get) => ({
       const next = state.bookingSession.expiresIn - 1;
       if (next <= 0) {
         return {
-          bookingSession: { expiresIn: 0, active: false },
+          bookingSession: { expiresIn: 0, active: false, heldAt: null },
           selectedSeats: [],
+          seatMap: state.seatMap.map((seat) => (seat.status === 'held' ? { ...seat, status: 'available' } : seat)),
           notifications: [...state.notifications, { id: Date.now(), type: 'warning', message: 'Booking session expired. Seats auto-released.' }],
         };
       }
@@ -99,17 +131,27 @@ export const useAppStore = create((set, get) => ({
   refreshSeatMapFromSocket: () =>
     set((state) => {
       const seatToFlip = Math.floor(Math.random() * state.seatMap.length) + 1;
-      const updated = state.seatMap.map((seat) =>
-        seat.id === seatToFlip ? { ...seat, status: seat.status === 'available' ? 'held' : 'available' } : seat,
-      );
+      const updated = state.seatMap.map((seat) => {
+        if (seat.id !== seatToFlip || state.selectedSeats.includes(seat.id)) return seat;
+        return { ...seat, status: seat.status === 'available' ? 'booked' : 'available' };
+      });
+      const train = state.selectedTrain;
       return {
         seatMap: updated,
-        bookingFeed: [`Seat ${seatToFlip} updated in real-time`, ...state.bookingFeed].slice(0, 20),
+        selectedTrain: train
+          ? {
+              ...train,
+              seatsLeft: Math.max(0, train.seatsLeft - (Math.random() > 0.52 ? 1 : 0)),
+              surgeMultiplier: Math.min(2.45, Number((train.surgeMultiplier + (Math.random() > 0.82 ? 0.01 : 0)).toFixed(2))),
+            }
+          : train,
+        bookingFeed: [`Seat ${seatToFlip} changed due to high traffic`, ...state.bookingFeed].slice(0, 20),
       };
     }),
   updatePromo: (promoCode) => set((state) => ({ payment: { ...state.payment, promoCode } })),
   setPaymentMethod: (method) => set((state) => ({ payment: { ...state.payment, method } })),
   setPaymentStatus: (status) => set((state) => ({ payment: { ...state.payment, status } })),
+  setPaymentQueuePosition: (queuePosition) => set((state) => ({ payment: { ...state.payment, queuePosition } })),
   completePayment: (method) =>
     set((state) => ({
       payment: {
@@ -118,7 +160,10 @@ export const useAppStore = create((set, get) => ({
         status: 'confirmed',
         transactionId: `txn_${Math.floor(Math.random() * 999999)}`,
         timestamp: new Date().toISOString(),
+        queuePosition: null,
       },
+      bookingSession: { expiresIn: 0, active: false, heldAt: null },
+      seatMap: state.seatMap.map((seat) => (state.selectedSeats.includes(seat.id) ? { ...seat, status: 'booked' } : seat)),
     })),
   pushNotification: (notification) =>
     set((state) => ({ notifications: [...state.notifications, { id: Date.now(), ...notification }] })),

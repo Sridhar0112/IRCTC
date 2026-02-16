@@ -29,6 +29,8 @@ export default function SeatMap2D({ seatMap, selectedSeats, onToggleSeat }) {
               const cls = selected ? seatStyles.selected : seatStyles[seat.status];
               return (
                 <motion.button
+                  layout
+                  whileHover={{ y: -2 }}
                   whileTap={{ scale: 0.95 }}
                   key={seat.id}
                   onClick={() => onToggleSeat(seat.id)}

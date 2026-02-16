@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import AdminSidebar from '../components/admin/AdminSidebar';
 import KPIWidgets from '../components/admin/KPIWidgets';
 import OccupancyHeatmap from '../components/admin/OccupancyHeatmap';
@@ -12,6 +12,9 @@ export default function AdminDashboard() {
   const setRole = useAppStore((s) => s.setRole);
   const trains = useAppStore((s) => s.trains);
   const bookings = useAppStore((s) => s.bookings);
+  const [dateRange, setDateRange] = useState({ start: '2026-01-01', end: '2026-12-31' });
+
+  const southFocusedTrains = useMemo(() => trains.filter((t) => t.southIndiaRoute), [trains]);
 
   return (
     <div className="flex gap-4">
@@ -24,10 +27,14 @@ export default function AdminDashboard() {
             <option value="super_admin">Super Admin</option>
           </select>
         </div>
-        <div className="flex flex-wrap gap-2 text-sm"><input type="date" className="rounded-lg border px-2 py-2 dark:bg-slate-900" /><input type="date" className="rounded-lg border px-2 py-2 dark:bg-slate-900" /></div>
-        <KPIWidgets bookings={bookings} trains={trains} />
-        <Charts />
-        <OccupancyHeatmap trains={trains} />
+        <div className="flex flex-wrap gap-2 text-sm">
+          <input type="date" value={dateRange.start} onChange={(e) => setDateRange((s) => ({ ...s, start: e.target.value }))} className="rounded-lg border px-2 py-2 dark:bg-slate-900" />
+          <input type="date" value={dateRange.end} onChange={(e) => setDateRange((s) => ({ ...s, end: e.target.value }))} className="rounded-lg border px-2 py-2 dark:bg-slate-900" />
+          <span className="rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-700">Range: {dateRange.start} → {dateRange.end}</span>
+        </div>
+        <KPIWidgets bookings={bookings} trains={southFocusedTrains} />
+        <Charts trains={southFocusedTrains} />
+        <OccupancyHeatmap trains={southFocusedTrains} />
         <AdminTable bookings={bookings} />
       </div>
     </div>
